@@ -1,0 +1,39 @@
+{
+  "examples": [
+    {
+      "domain": "math",
+      "task": "Solve the quadratic equation: 3x^2 - 7x + 2 = 0",
+      "context": "Show step-by-step solution using the quadratic formula.",
+      "ground_truth": "Using the quadratic formula: x = (-b ± √(b² - 4ac)) / (2a)\nWith a=3, b=-7, c=2:\nx = (7 ± √(49 - 24)) / 6\nx = (7 ± √25) / 6\nx = (7 ± 5) / 6\nx₁ = 2, x₂ = 1/3",
+      "difficulty": "medium"
+    },
+    {
+      "domain": "math",
+      "task": "Find the derivative of f(x) = x³ + 2x² - 4x + 1",
+      "context": "Use the power rule and show each step.",
+      "ground_truth": "Using the power rule:\nf'(x) = 3x² + 4x - 4",
+      "difficulty": "easy"
+    },
+    {
+      "domain": "code",
+      "task": "Write a Python function to check if a string is a palindrome",
+      "context": "Include type hints and handle edge cases.",
+      "ground_truth": "def is_palindrome(text: str) -> bool:\n    \"\"\"Check if a string is a palindrome.\n    Args:\n        text: String to check\n    Returns:\n        bool: True if palindrome, False otherwise\n    \"\"\"\n    # Remove non-alphanumeric chars and convert to lowercase\n    cleaned = ''.join(c.lower() for c in text if c.isalnum())\n    return cleaned == cleaned[::-1]",
+      "difficulty": "easy"
+    },
+    {
+      "domain": "code",
+      "task": "Implement a binary search function",
+      "context": "Include type hints and handle edge cases.",
+      "ground_truth": "def binary_search(arr: List[int], target: int) -> int:\n    \"\"\"Find target in sorted array using binary search.\n    Args:\n        arr: Sorted list of integers\n        target: Value to find\n    Returns:\n        int: Index of target or -1 if not found\n    \"\"\"\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    return -1",
+      "difficulty": "medium"
+    },
+    {
+      "domain": "defi",
+      "task": "Calculate impermanent loss for a liquidity position",
+      "context": "SOL/USDC pool, initial SOL price $200, current price $250",
+      "ground_truth": "1. Initial position: 50-50 split\n2. Price change: +25% (2500/2000)\n3. IL = 2√(P) / (1 + P) - 1\nwhere P = price_ratio = 1.25\n4. IL ≈ -0.019 or -1.9%",
+      "difficulty": "medium"
+    }
+  ]
+}
