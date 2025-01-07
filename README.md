@@ -165,7 +165,7 @@ evolved_agent = evolution.train(
 ```
 
 
-## Detailed Walkthrough: Creating a DeFi Trading Agent
+## Detailed Walkthrough
 
 Let's walk through creating an autonomous DeFi trading agent that can analyze market conditions and suggest optimal trading strategies. This agent will continuously evolve to handle new DeFi protocols and market conditions.
 
