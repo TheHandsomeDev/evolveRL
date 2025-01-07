@@ -9,12 +9,11 @@
 - 🚀 [Getting Started](#getting-started)
 - 🔧 [Installation](#installation)
 - 🛠️ [Components](#components)
-- 📊 [Training Data](#training-data)
-- 🔍 [Examples](#examples)
-- 🧪 [Testing](#testing)
-- 🗺️ [Roadmap](#roadmap)
+- 🧬 [Evolutionary Loop](#evolutionary-loop)
+- 📊 [Detailed Walkthrough](#detailed-walkthrough)
 - 📄 [License](#license)
 - 🤝 [Contributing](#contributing)
+- 💬 [Citation](#citation)
 
 ## Overview
 
@@ -165,30 +164,8 @@ evolved_agent = evolution.train(
 )
 ```
 
-## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Citation
-
-```bibtex
-@software{evolverl2024,
-    title={EvolveRL: Evolutionary Reinforcement Learning for LLMs},
-    author={Your Name},
-    year={2024},
-    url={https://github.com/yourusername/evolverl}
-}
-```
-
-## 🎓 Detailed Walkthrough: Creating a DeFi Trading Agent
+## Detailed Walkthrough: Creating a DeFi Trading Agent
 
 Let's walk through creating an autonomous DeFi trading agent that can analyze market conditions and suggest optimal trading strategies. This agent will continuously evolve to handle new DeFi protocols and market conditions.
 
@@ -481,3 +458,29 @@ The resulting agent will:
 - Consider multiple factors
 - Provide detailed recommendations
 - Continuously improve
+
+
+## License
+
+MIT License - see LICENSE file for details
+
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+
+## Citation
+
+```bibtex
+@software{evolverl2024,
+    title={EvolveRL: Evolutionary Reinforcement Learning for LLMs},
+    author={TheHandsomeDev},
+    year={2025},
+    url={https://www.evolverl.com/}
+}
+```
