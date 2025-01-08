@@ -3,12 +3,12 @@
 > Empowering Truly Autonomous AI Agents Through Adversarial Evolutionary Reinforcement Learning
 
 ## Links
+
 - [Website](https://www.evolverl.com/)
 - [Whitepaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-whitepaper.pdf)
 - [Techpaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-techpaper.pdf)
 - [Telegram](https://t.me/evolveRL)
 - [Twitter/X](https://x.com/evolveRL_sol)
-
 
 ## 📚 Table of Contents
 
@@ -171,7 +171,6 @@ evolved_agent = evolution.train(
     tester=tester
 )
 ```
-
 
 ## Detailed Walkthrough
 
@@ -467,11 +466,9 @@ The resulting agent will:
 - Provide detailed recommendations
 - Continuously improve
 
-
 ## License
 
 MIT License - see LICENSE file for details
-
 
 ## Contributing
 
@@ -480,7 +477,6 @@ MIT License - see LICENSE file for details
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
-
 
 ## Citation
 
