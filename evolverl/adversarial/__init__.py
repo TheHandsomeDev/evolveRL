@@ -1,11 +1,17 @@
 """
-Adversarial package for generating challenging test cases.
-
-This package provides components for generating and managing adversarial
-test cases that challenge and expose weaknesses in evolved models.
+Adversarial testing module for EvolveRL.
 """
 
-from .tester import AdversarialTester
-from .adversarial import TestCase
+from dataclasses import dataclass
+from typing import Dict, Any, Optional
 
-__all__ = ['AdversarialTester', 'TestCase']
+@dataclass
+class TestCase:
+    """A test case for adversarial testing."""
+    input: str
+    expected_output: Optional[str] = None
+    metadata: Dict[str, Any] = None
+
+from .adversarial import AdversarialTester
+
+__all__ = ['TestCase', 'AdversarialTester'] 
