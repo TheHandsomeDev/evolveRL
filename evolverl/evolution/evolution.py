@@ -1,300 +1,201 @@
 """
-Evolution controller for managing the evolutionary learning process.
-"""
-from typing import Optional, Dict, Any, List, Callable, Tuple
-from dataclasses import dataclass
-import random
-import json
-import logging
-from datetime import datetime
+Core implementation of the Adversarial Evolutionary Reinforcement Learning (AERL) framework.
 
-from ..agent import Agent
-from ..prompt_writer import PromptWriter
+This module implements the evolutionary optimization process described in the AERL paper,
+combining evolutionary algorithms with adversarial testing for LLM optimization.
+"""
+
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Dict, Any
+import numpy as np
+
+from ..llm import LLMBackend, LLMConfig
 from ..judge import Judge, JudgingCriteria
 from ..adversarial import AdversarialTester
-
+from ..prompt_writer import PromptWriter, PromptMutationConfig
 
 @dataclass
 class EvolutionConfig:
-    """Configuration for the evolution process."""
+    """Configuration for the evolutionary process."""
     population_size: int = 10
     generations: int = 100
     mutation_rate: float = 0.1
+    crossover_rate: float = 0.7
     elite_size: int = 2
-    fitness_threshold: float = 0.95
-    num_adversarial_tests: int = 5
-    adversarial_difficulty: str = "medium"
-    domain: Optional[str] = None
+    tournament_size: int = 3
+    fitness_weights: Dict[str, float] = None
+    adversarial_difficulty: float = 0.5
+    min_fitness_threshold: float = 0.7
 
+@dataclass
+class Individual:
+    """Represents a single individual in the population."""
+    prompt: str
+    config: LLMConfig
+    fitness: float = 0.0
+    metrics: Dict[str, float] = None
 
 class Evolution:
     """
-    Controls the evolutionary learning process for agents.
+    Main class implementing the AERL framework.
     
-    This class implements the complete evolutionary workflow described in the paper,
-    coordinating between the PromptWriter, AdversarialTester, and Judge components.
-    
-    Args:
-        population_size (int): Size of the population in each generation
-        generations (int): Number of generations to evolve
-        config (Optional[Dict[str, Any]]): Additional configuration parameters
+    This class manages the evolutionary process, including:
+    1. Population initialization
+    2. Adversarial testing
+    3. Scoring and selection
+    4. Mutation and crossover
+    5. Optional co-evolution of adversaries
     """
     
     def __init__(
         self,
-        population_size: int = 10,
-        generations: int = 100,
-        config: Optional[Dict[str, Any]] = None
+        config: EvolutionConfig,
+        llm_backend: LLMBackend,
+        judge: Judge,
+        adversarial: AdversarialTester,
+        prompt_writer: PromptWriter
     ):
-        self.config = EvolutionConfig(
-            population_size=population_size,
-            generations=generations,
-            **(config or {})
-        )
-        
-        # Initialize components
-        self.prompt_writer = PromptWriter()
-        self.judge = Judge(criteria=JudgingCriteria(
-            correctness=1.0,
-            clarity=0.5,
-            efficiency=0.3,
-            completeness=0.5,
-            consistency=0.4
-        ))
-        self.adversarial = AdversarialTester(
-            difficulty=self.config.adversarial_difficulty,
-            domain=self.config.domain
-        )
-        
-        # Evolution state
+        self.config = config
+        self.llm = llm_backend
+        self.judge = judge
+        self.adversarial = adversarial
+        self.prompt_writer = prompt_writer
+        self.population: List[Individual] = []
         self.generation = 0
-        self.best_fitness = 0.0
-        self.population: List[Agent] = []
-        self.evolution_history: List[Dict[str, Any]] = []
+        self.best_individual: Optional[Individual] = None
         
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-    
-    def train(
-        self,
-        agent: Agent,
-        task: str,
-        adversarial_difficulty: str = "medium",
-        judge_fn: Optional[Callable[[str, str], float]] = None
-    ) -> Agent:
-        """
-        Train an agent through evolutionary optimization.
-        
-        Args:
-            agent (Agent): The base agent to evolve
-            task (str): The task to optimize for
-            adversarial_difficulty (str): Difficulty level for adversarial testing
-            judge_fn (Optional[Callable]): Custom evaluation function
+    def initialize_population(self) -> None:
+        """Initialize the first generation of prompts and configs."""
+        self.population = []
+        for _ in range(self.config.population_size):
+            prompt = self.prompt_writer.generate_initial_prompt()
+            config = self.llm.get_default_config()
+            self.population.append(Individual(prompt=prompt, config=config))
             
-        Returns:
-            Agent: The best performing agent after evolution
-        """
-        self.logger.info(f"Starting evolution for task: {task}")
-        
-        # Initialize population with prompt variations
-        self.population = self._initialize_population(agent, task)
-        
-        for generation in range(self.config.generations):
-            self.generation = generation
-            self.logger.info(f"\nGeneration {generation + 1}/{self.config.generations}")
-            
-            # Generate adversarial test cases
-            test_cases = self.adversarial.generate_test_cases(
-                agent=agent,
-                num_cases=self.config.num_adversarial_tests
-            )
-            
-            # Evaluate each agent against test cases
-            fitness_scores = self._evaluate_population(
-                test_cases=test_cases,
-                judge_fn=judge_fn
-            )
-            
-            # Select and record elite agents
-            elite_agents, elite_scores = self._select_elite_agents(
-                fitness_scores
-            )
-            
-            # Record progress
-            self._record_generation(
-                test_cases=test_cases,
-                fitness_scores=fitness_scores,
-                elite_scores=elite_scores
-            )
-            
-            # Check if we've reached our goal
-            if max(fitness_scores) >= self.config.fitness_threshold:
-                self.logger.info("Reached fitness threshold! Evolution complete.")
-                return self.population[fitness_scores.index(max(fitness_scores))]
-            
-            # Generate next generation
-            self.population = self._create_next_generation(
-                elite_agents=elite_agents,
-                fitness_scores=fitness_scores
-            )
-        
-        # Return best agent after all generations
-        best_idx = fitness_scores.index(max(fitness_scores))
-        return self.population[best_idx]
-    
-    def _initialize_population(
-        self,
-        base_agent: Agent,
-        task: str
-    ) -> List[Agent]:
-        """Initialize population with prompt variations."""
-        self.logger.info("Initializing population...")
-        
-        # Generate initial prompts
-        prompts = self.prompt_writer.generate_initial_population(
-            task_description=task,
-            population_size=self.config.population_size
+    def evaluate_individual(self, individual: Individual) -> Tuple[float, Dict[str, float]]:
+        """Evaluate a single individual using adversarial testing and judging."""
+        # Generate adversarial test cases
+        test_cases = self.adversarial.generate_test_cases(
+            difficulty=self.config.adversarial_difficulty
         )
         
-        # Create agent variants
-        population = []
-        for prompt in prompts:
-            agent = Agent(
-                model=base_agent.model,
-                config=base_agent.config.copy(),
-                prompt_template=prompt
+        # Run the model on test cases
+        responses = []
+        for test in test_cases:
+            response = self.llm.generate(
+                prompt=individual.prompt,
+                input_text=test.input,
+                config=individual.config
             )
-            population.append(agent)
-        
-        return population
-    
-    def _evaluate_population(
-        self,
-        test_cases: List[Tuple[str, Dict[str, Any]]],
-        judge_fn: Optional[Callable[[str, str], float]] = None
-    ) -> List[float]:
-        """Evaluate each agent against test cases."""
-        fitness_scores = []
-        
-        for i, agent in enumerate(self.population):
-            agent_scores = []
+            responses.append(response)
             
-            for test, metadata in test_cases:
-                response = agent.run(test)
-                
-                if judge_fn:
-                    score = judge_fn(test, response)
-                else:
-                    score = self.judge.evaluate(
-                        task=test,
-                        response=response,
-                        domain=self.config.domain
-                    )
-                
-                agent_scores.append(score)
-            
-            # Average score across all test cases
-            fitness = sum(agent_scores) / len(agent_scores)
-            fitness_scores.append(fitness)
-            
-            self.logger.info(f"Agent {i + 1}/{len(self.population)} - Fitness: {fitness:.3f}")
-        
-        return fitness_scores
-    
-    def _select_elite_agents(
-        self,
-        fitness_scores: List[float]
-    ) -> Tuple[List[Agent], List[float]]:
-        """Select the best performing agents."""
-        elite_indices = sorted(
-            range(len(fitness_scores)),
-            key=lambda i: fitness_scores[i],
-            reverse=True
-        )[:self.config.elite_size]
-        
-        elite_agents = [self.population[i] for i in elite_indices]
-        elite_scores = [fitness_scores[i] for i in elite_indices]
-        
-        best_fitness = elite_scores[0]
-        if best_fitness > self.best_fitness:
-            self.best_fitness = best_fitness
-            self.logger.info(f"New best fitness: {best_fitness:.3f}")
-        
-        return elite_agents, elite_scores
-    
-    def _create_next_generation(
-        self,
-        elite_agents: List[Agent],
-        fitness_scores: List[float]
-    ) -> List[Agent]:
-        """Create the next generation through mutation."""
-        # Get all prompts and their scores
-        prompts = [agent.prompt_template for agent in self.population]
-        
-        # Generate new prompts through mutation
-        new_prompts = self.prompt_writer.mutate_prompts(
-            prompts=prompts,
-            scores=fitness_scores
+        # Judge the responses
+        metrics = self.judge.evaluate_batch(
+            test_cases=test_cases,
+            responses=responses
         )
         
+        # Calculate weighted fitness
+        if self.config.fitness_weights is None:
+            fitness = np.mean(list(metrics.values()))
+        else:
+            fitness = sum(
+                metrics[k] * self.config.fitness_weights[k]
+                for k in metrics.keys()
+            )
+            
+        return fitness, metrics
+        
+    def select_parents(self) -> Tuple[Individual, Individual]:
+        """Select parents using tournament selection."""
+        def tournament():
+            contestants = np.random.choice(
+                self.population,
+                size=self.config.tournament_size,
+                replace=False
+            )
+            return max(contestants, key=lambda x: x.fitness)
+            
+        parent1 = tournament()
+        parent2 = tournament()
+        return parent1, parent2
+        
+    def crossover(self, parent1: Individual, parent2: Individual) -> Individual:
+        """Perform crossover between two parents."""
+        if np.random.random() < self.config.crossover_rate:
+            new_prompt = self.prompt_writer.crossover_prompts(
+                parent1.prompt,
+                parent2.prompt
+            )
+            new_config = self.llm.crossover_configs(
+                parent1.config,
+                parent2.config
+            )
+        else:
+            new_prompt = parent1.prompt
+            new_config = parent1.config
+            
+        return Individual(prompt=new_prompt, config=new_config)
+        
+    def mutate(self, individual: Individual) -> None:
+        """Apply mutation to an individual."""
+        if np.random.random() < self.config.mutation_rate:
+            individual.prompt = self.prompt_writer.mutate_prompt(
+                individual.prompt
+            )
+            individual.config = self.llm.mutate_config(
+                individual.config
+            )
+            
+    def evolve_generation(self) -> None:
+        """Evolve the population by one generation."""
+        # Evaluate current population
+        for ind in self.population:
+            ind.fitness, ind.metrics = self.evaluate_individual(ind)
+            
+        # Update best individual
+        current_best = max(self.population, key=lambda x: x.fitness)
+        if (self.best_individual is None or 
+            current_best.fitness > self.best_individual.fitness):
+            self.best_individual = current_best
+            
         # Create new population
-        next_population = elite_agents.copy()  # Keep elite agents unchanged
+        new_population = []
         
-        # Add mutated variants
-        while len(next_population) < self.config.population_size:
-            parent = random.choice(elite_agents)
-            child = Agent(
-                model=parent.model,
-                config=parent.config.copy(),
-                prompt_template=new_prompts[len(next_population)]
-            )
-            next_population.append(child)
-        
-        return next_population
-    
-    def _record_generation(
-        self,
-        test_cases: List[Tuple[str, Dict[str, Any]]],
-        fitness_scores: List[float],
-        elite_scores: List[float]
-    ) -> None:
-        """Record the results of the current generation."""
-        generation_data = {
-            "generation": self.generation,
-            "timestamp": datetime.now().isoformat(),
-            "best_fitness": max(fitness_scores),
-            "avg_fitness": sum(fitness_scores) / len(fitness_scores),
-            "elite_scores": elite_scores,
-            "test_cases": [test for test, _ in test_cases],
-            "population_size": len(self.population)
-        }
-        
-        self.evolution_history.append(generation_data)
-    
-    def save_state(self, path: str) -> None:
-        """Save the evolution state to a file."""
-        state = {
-            "config": self.config.__dict__,
-            "generation": self.generation,
-            "best_fitness": self.best_fitness,
-            "evolution_history": self.evolution_history
-        }
-        with open(path, 'w') as f:
-            json.dump(state, f, indent=2)
-    
-    @classmethod
-    def load_state(cls, path: str) -> 'Evolution':
-        """Load an evolution state from a file."""
-        with open(path, 'r') as f:
-            state = json.load(f)
-        
-        evolution = cls(
-            population_size=state["config"]["population_size"],
-            generations=state["config"]["generations"],
-            config=state["config"]
+        # Elitism: Keep best individuals
+        sorted_pop = sorted(
+            self.population,
+            key=lambda x: x.fitness,
+            reverse=True
         )
-        evolution.generation = state["generation"]
-        evolution.best_fitness = state["best_fitness"]
-        evolution.evolution_history = state["evolution_history"]
-        return evolution 
+        new_population.extend(sorted_pop[:self.config.elite_size])
+        
+        # Fill rest of population with offspring
+        while len(new_population) < self.config.population_size:
+            parent1, parent2 = self.select_parents()
+            offspring = self.crossover(parent1, parent2)
+            self.mutate(offspring)
+            new_population.append(offspring)
+            
+        self.population = new_population
+        self.generation += 1
+        
+        # Optional: Co-evolve adversaries
+        self.adversarial.update_difficulty(
+            generation=self.generation,
+            best_fitness=self.best_individual.fitness
+        )
+        
+    def run(self, max_generations: Optional[int] = None) -> Individual:
+        """Run the evolutionary process until convergence or max generations."""
+        if max_generations is None:
+            max_generations = self.config.generations
+            
+        self.initialize_population()
+        
+        while (self.generation < max_generations and
+               (self.best_individual is None or
+                self.best_individual.fitness < self.config.min_fitness_threshold)):
+            self.evolve_generation()
+            
+        return self.best_individual 
