@@ -2,6 +2,14 @@
 
 > Empowering Truly Autonomous AI Agents Through Adversarial Evolutionary Reinforcement Learning
 
+## Links
+- [Website](https://www.evolverl.com/)
+- [Whitepaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-whitepaper.pdf)
+- [Techpaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-techpaper.pdf)
+- [Telegram](https://t.me/evolveRL)
+- [Twitter/X](https://x.com/evolveRL_sol)
+
+
 ## 📚 Table of Contents
 
 - 🎯 [Overview](#overview)
