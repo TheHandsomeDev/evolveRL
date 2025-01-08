@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="evolverl",
-    version="0.1.0",
+    version="0.1.1",
     author="TheHandsomeDev",
     author_email="contact@evolverl.com",
     description="Autonomous AI Agent Evolution through Adversarial Learning",
@@ -23,6 +23,7 @@ setup(
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     python_requires=">=3.8",
