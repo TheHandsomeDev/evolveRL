@@ -6,5 +6,6 @@ test cases that challenge and expose weaknesses in evolved models.
 """
 
 from .tester import AdversarialTester
+from .adversarial import TestCase
 
-__all__ = ['AdversarialTester'] 
+__all__ = ['AdversarialTester', 'TestCase']
