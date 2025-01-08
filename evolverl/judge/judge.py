@@ -1,385 +1,322 @@
 """
-Judge component for evaluating model responses.
+Judge module for the AERL framework.
+
+This module implements the evaluation and scoring mechanisms described in the
+technical paper, providing multi-objective assessment of LLM responses.
 """
-from typing import Dict, Any, Optional, List
+
 from dataclasses import dataclass
-import json
-import re
-import logging
+from typing import List, Dict, Any, Optional, Tuple
+import numpy as np
 
-from ..llm import LLMBackend, LLMConfig
-
+from ..adversarial import TestCase
 
 @dataclass
 class JudgingCriteria:
-    """Criteria for judging model responses."""
-    correctness: float = 1.0  # Weight for answer correctness
-    clarity: float = 0.5  # Weight for explanation clarity
-    efficiency: float = 0.3  # Weight for solution efficiency
-    completeness: float = 0.5  # Weight for addressing all parts
+    """Criteria for evaluating LLM responses."""
+    correctness: float = 1.0  # Weight for functional correctness
+    clarity: float = 0.5      # Weight for response clarity
+    efficiency: float = 0.3   # Weight for computational efficiency
+    robustness: float = 0.4   # Weight for handling edge cases
+    completeness: float = 0.5 # Weight for addressing all requirements
     consistency: float = 0.4  # Weight for internal consistency
-
+    
+    def normalize_weights(self) -> None:
+        """Normalize weights to sum to 1.0."""
+        total = sum([
+            self.correctness,
+            self.clarity,
+            self.efficiency,
+            self.robustness,
+            self.completeness,
+            self.consistency
+        ])
+        
+        self.correctness /= total
+        self.clarity /= total
+        self.efficiency /= total
+        self.robustness /= total
+        self.completeness /= total
+        self.consistency /= total
 
 class Judge:
     """
-    Evaluates model responses based on multiple criteria.
+    Evaluates LLM responses using multi-objective criteria.
     
-    This implements the Judge component from the paper, providing
-    sophisticated evaluation of model outputs across multiple dimensions.
-    
-    Args:
-        model (str): The LLM to use for evaluation (if using LLM-based judging)
-        criteria (Optional[JudgingCriteria]): Custom judging criteria weights
-        config (Optional[Dict[str, Any]]): Additional configuration
+    This class implements the Judge component described in the AERL paper,
+    providing systematic evaluation of responses across multiple dimensions.
     """
     
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
         criteria: Optional[JudgingCriteria] = None,
-        config: Optional[Dict[str, Any]] = None
+        llm_evaluator: Optional[Any] = None,
+        code_evaluator: Optional[Any] = None,
+        math_evaluator: Optional[Any] = None
     ):
-        self.model = model
         self.criteria = criteria or JudgingCriteria()
-        self.config = config or {}
+        self.criteria.normalize_weights()
+        
+        # Domain-specific evaluators
+        self.llm_evaluator = llm_evaluator
+        self.code_evaluator = code_evaluator
+        self.math_evaluator = math_evaluator
+        
+        # Evaluation history
         self.evaluation_history: List[Dict[str, Any]] = []
         
-        # Initialize LLM backend for evaluation
-        llm_config = LLMConfig(
-            model=model,
-            temperature=0.2,  # Lower temperature for more consistent evaluation
-            max_tokens=500
-        )
-        self.llm = LLMBackend(config=llm_config)
-        self.logger = logging.getLogger(__name__)
-    
-    def evaluate(
+    def evaluate_batch(
         self,
-        task: str,
-        response: str,
-        ground_truth: Optional[str] = None,
-        domain: Optional[str] = None
-    ) -> float:
-        """
-        Evaluate a model's response to a task.
-        
-        Args:
-            task (str): The original task/question
-            response (str): The model's response to evaluate
-            ground_truth (Optional[str]): Correct answer if available
-            domain (Optional[str]): Task domain for specialized evaluation
+        test_cases: List[TestCase],
+        responses: List[str]
+    ) -> Dict[str, float]:
+        """Evaluate a batch of responses against test cases."""
+        if len(test_cases) != len(responses):
+            raise ValueError(
+                f"Number of test cases ({len(test_cases)}) must match "
+                f"number of responses ({len(responses)})"
+            )
             
-        Returns:
-            float: Overall score between 0 and 1
-        """
-        scores = {}
-        
-        # Evaluate each criterion
-        if ground_truth:
-            scores["correctness"] = self._evaluate_correctness(
-                response, ground_truth, domain
-            )
-        else:
-            scores["correctness"] = self._evaluate_without_ground_truth(
-                task, response, domain
-            )
-        
-        scores["clarity"] = self._evaluate_clarity(response)
-        scores["efficiency"] = self._evaluate_efficiency(response)
-        scores["completeness"] = self._evaluate_completeness(task, response)
-        scores["consistency"] = self._evaluate_consistency(response)
-        
-        # Calculate weighted average
-        weighted_sum = sum(
-            getattr(self.criteria, criterion) * score
-            for criterion, score in scores.items()
-        )
-        total_weight = sum(
-            getattr(self.criteria, criterion)
-            for criterion in scores.keys()
-        )
-        
-        final_score = weighted_sum / total_weight
-        
+        # Evaluate each response
+        metrics = []
+        for test_case, response in zip(test_cases, responses):
+            result = self.evaluate_single(test_case, response)
+            metrics.append(result)
+            
+        # Aggregate metrics
+        aggregated = {}
+        for key in metrics[0].keys():
+            aggregated[key] = np.mean([m[key] for m in metrics])
+            
         # Record evaluation
         self.evaluation_history.append({
-            "task": task,
-            "scores": scores,
-            "final_score": final_score,
-            "domain": domain
+            "num_cases": len(test_cases),
+            "metrics": aggregated
         })
         
-        return final_score
-    
+        return aggregated
+        
+    def evaluate_single(
+        self,
+        test_case: TestCase,
+        response: str
+    ) -> Dict[str, float]:
+        """Evaluate a single response against a test case."""
+        metrics = {}
+        
+        # Evaluate correctness
+        metrics["correctness"] = self._evaluate_correctness(
+            test_case,
+            response
+        )
+        
+        # Evaluate clarity
+        metrics["clarity"] = self._evaluate_clarity(response)
+        
+        # Evaluate efficiency
+        metrics["efficiency"] = self._evaluate_efficiency(
+            test_case,
+            response
+        )
+        
+        # Evaluate robustness
+        metrics["robustness"] = self._evaluate_robustness(
+            test_case,
+            response
+        )
+        
+        # Evaluate completeness
+        metrics["completeness"] = self._evaluate_completeness(
+            test_case,
+            response
+        )
+        
+        # Evaluate consistency
+        metrics["consistency"] = self._evaluate_consistency(response)
+        
+        return metrics
+        
     def _evaluate_correctness(
         self,
-        response: str,
-        ground_truth: str,
-        domain: Optional[str]
+        test_case: TestCase,
+        response: str
     ) -> float:
-        """Evaluate response correctness against ground truth."""
-        if domain == "math":
-            return self._evaluate_math_correctness(response, ground_truth)
-        elif domain == "code":
-            return self._evaluate_code_correctness(response, ground_truth)
-        
-        # Use LLM to evaluate correctness
-        prompt = f"""Evaluate if the following response matches the ground truth.
-Consider both factual accuracy and completeness.
-
-Ground Truth: {ground_truth}
-Response: {response}
-
-Score the response from 0 to 1, where:
-0 = Completely incorrect
-0.5 = Partially correct
-1 = Completely correct
-
-Provide your score in the format:
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
-        
-        try:
-            eval_response = self.llm.generate(prompt)
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5  # Default if parsing fails
-        except Exception as e:
-            self.logger.error(f"Error in correctness evaluation: {str(e)}")
-            return 0.5
-    
-    def _evaluate_without_ground_truth(
-        self,
-        task: str,
-        response: str,
-        domain: Optional[str]
-    ) -> float:
-        """Evaluate response when no ground truth is available."""
-        prompt = f"""Evaluate if the following response appropriately answers the task.
-Consider accuracy, relevance, and completeness.
-
-Task: {task}
-Response: {response}
-
-Score the response from 0 to 1, where:
-0 = Completely inappropriate or incorrect
-0.5 = Partially appropriate
-1 = Fully appropriate and likely correct
-
-Provide your score in the format:
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
-        
-        try:
-            eval_response = self.llm.generate(prompt)
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5
-        except Exception as e:
-            self.logger.error(f"Error in evaluation: {str(e)}")
-            return 0.5
-    
+        """Evaluate functional correctness of the response."""
+        # Use domain-specific evaluator if available
+        if self.code_evaluator and "code" in test_case.metadata:
+            return self.code_evaluator.check_correctness(
+                test_case.input,
+                response,
+                test_case.expected_output
+            )
+        elif self.math_evaluator and "math" in test_case.metadata:
+            return self.math_evaluator.check_correctness(
+                test_case.input,
+                response,
+                test_case.expected_output
+            )
+        elif self.llm_evaluator:
+            return self.llm_evaluator.check_correctness(
+                test_case.input,
+                response,
+                test_case.expected_output
+            )
+        else:
+            # Basic string matching if no evaluator available
+            if test_case.expected_output:
+                return float(response.strip() == test_case.expected_output.strip())
+            return 0.5  # Neutral score if no expected output
+            
     def _evaluate_clarity(self, response: str) -> float:
-        """Evaluate the clarity and readability of the response."""
-        prompt = """Evaluate the clarity and readability of the following response.
-Consider:
-1. Clear structure and organization
-2. Use of explanatory language
-3. Logical flow
-4. Appropriate detail level
-
-Response: {response}
-
-Score from 0 to 1, where:
-0 = Very unclear and hard to follow
-0.5 = Moderately clear
-1 = Extremely clear and well-structured
-
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
-        
-        try:
-            eval_response = self.llm.generate(prompt.format(response=response))
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
+        """Evaluate clarity and readability of the response."""
+        if self.llm_evaluator:
+            return self.llm_evaluator.check_clarity(response)
             
-            # Fallback to heuristic evaluation
-            indicators = [
-                "step by step",
-                "first",
-                "then",
-                "finally",
-                "because",
-                "therefore"
-            ]
-            score = sum(1 for ind in indicators if ind in response.lower())
-            return min(score / len(indicators), 1.0)
+        # Basic clarity metrics if no evaluator
+        metrics = []
+        
+        # Check sentence length (prefer moderate lengths)
+        sentences = response.split('.')
+        avg_sentence_length = np.mean([len(s.split()) for s in sentences])
+        length_score = 1.0 - abs(avg_sentence_length - 15) / 15
+        metrics.append(max(0, length_score))
+        
+        # Check formatting consistency
+        formatting_score = self._check_formatting_consistency(response)
+        metrics.append(formatting_score)
+        
+        return np.mean(metrics)
+        
+    def _evaluate_efficiency(
+        self,
+        test_case: TestCase,
+        response: str
+    ) -> float:
+        """Evaluate computational efficiency of the response."""
+        if "constraints" in test_case.metadata:
+            constraints = test_case.metadata["constraints"]
             
-        except Exception as e:
-            self.logger.error(f"Error in clarity evaluation: {str(e)}")
-            return 0.5
-    
-    def _evaluate_efficiency(self, response: str) -> float:
-        """Evaluate the efficiency of the solution."""
-        prompt = """Evaluate the efficiency of the following response.
-Consider:
-1. Directness of approach
-2. Absence of unnecessary steps
-3. Optimal use of available information
-4. Conciseness without sacrificing clarity
-
-Response: {response}
-
-Score from 0 to 1, where:
-0 = Very inefficient or roundabout
-0.5 = Moderately efficient
-1 = Highly efficient and optimal
-
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
+            if self.code_evaluator and "code" in test_case.metadata:
+                return self.code_evaluator.check_efficiency(
+                    response,
+                    constraints
+                )
+            elif self.math_evaluator and "math" in test_case.metadata:
+                return self.math_evaluator.check_efficiency(
+                    response,
+                    constraints
+                )
+                
+        # Default to neutral score if no constraints or evaluator
+        return 0.5
         
-        try:
-            eval_response = self.llm.generate(prompt.format(response=response))
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5
-        except Exception as e:
-            self.logger.error(f"Error in efficiency evaluation: {str(e)}")
-            return 0.5
-    
-    def _evaluate_completeness(self, task: str, response: str) -> float:
-        """Evaluate if the response addresses all parts of the task."""
-        prompt = f"""Evaluate if the following response completely addresses all parts of the task.
-
-Task: {task}
-Response: {response}
-
-Score from 0 to 1, where:
-0 = Many parts unaddressed
-0.5 = Some parts addressed
-1 = All parts fully addressed
-
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
+    def _evaluate_robustness(
+        self,
+        test_case: TestCase,
+        response: str
+    ) -> float:
+        """Evaluate how well the response handles edge cases."""
+        if "edge_cases" in test_case.metadata:
+            edge_cases = test_case.metadata["edge_cases"]
+            
+            if self.code_evaluator and "code" in test_case.metadata:
+                return self.code_evaluator.check_edge_cases(
+                    response,
+                    edge_cases
+                )
+                
+        # Check for error handling patterns
+        error_handling_score = self._check_error_handling(response)
         
-        try:
-            eval_response = self.llm.generate(prompt)
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5
-        except Exception as e:
-            self.logger.error(f"Error in completeness evaluation: {str(e)}")
-            return 0.5
-    
+        # Check for input validation
+        validation_score = self._check_input_validation(response)
+        
+        return np.mean([error_handling_score, validation_score])
+        
+    def _evaluate_completeness(
+        self,
+        test_case: TestCase,
+        response: str
+    ) -> float:
+        """Evaluate if the response addresses all requirements."""
+        if "requirements" in test_case.metadata:
+            requirements = test_case.metadata["requirements"]
+            return self._check_requirements_coverage(
+                response,
+                requirements
+            )
+            
+        # Default completeness check
+        completeness_metrics = []
+        
+        # Check if response length is reasonable
+        length_score = min(len(response.split()) / 100, 1.0)
+        completeness_metrics.append(length_score)
+        
+        # Check for section completeness
+        sections_score = self._check_section_completeness(response)
+        completeness_metrics.append(sections_score)
+        
+        return np.mean(completeness_metrics)
+        
     def _evaluate_consistency(self, response: str) -> float:
         """Evaluate internal consistency of the response."""
-        prompt = """Evaluate the internal consistency of the following response.
-Check for:
-1. No contradictions
-2. Logical flow
-3. Consistent terminology
-4. Coherent reasoning
-
-Response: {response}
-
-Score from 0 to 1, where:
-0 = Many inconsistencies
-0.5 = Some minor inconsistencies
-1 = Completely consistent
-
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
+        consistency_metrics = []
         
-        try:
-            eval_response = self.llm.generate(prompt.format(response=response))
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5
-        except Exception as e:
-            self.logger.error(f"Error in consistency evaluation: {str(e)}")
-            return 0.5
-    
-    def _evaluate_math_correctness(
+        # Check for contradictions
+        contradiction_score = self._check_contradictions(response)
+        consistency_metrics.append(contradiction_score)
+        
+        # Check for style consistency
+        style_score = self._check_style_consistency(response)
+        consistency_metrics.append(style_score)
+        
+        # Check for terminology consistency
+        terminology_score = self._check_terminology_consistency(response)
+        consistency_metrics.append(terminology_score)
+        
+        return np.mean(consistency_metrics)
+        
+    def _check_formatting_consistency(self, text: str) -> float:
+        """Check consistency in text formatting."""
+        # Implementation depends on domain
+        raise NotImplementedError
+        
+    def _check_error_handling(self, text: str) -> float:
+        """Check for proper error handling patterns."""
+        # Implementation depends on domain
+        raise NotImplementedError
+        
+    def _check_input_validation(self, text: str) -> float:
+        """Check for input validation patterns."""
+        # Implementation depends on domain
+        raise NotImplementedError
+        
+    def _check_requirements_coverage(
         self,
-        response: str,
-        ground_truth: str
+        text: str,
+        requirements: List[str]
     ) -> float:
-        """Specialized evaluation for math problems."""
-        prompt = f"""Evaluate if the following math solution is correct.
-Consider:
-1. Final answer correctness
-2. Solution process correctness
-3. Mathematical reasoning
-4. Proper use of formulas/methods
-
-Correct Answer: {ground_truth}
-Solution: {response}
-
-Score from 0 to 1, where:
-0 = Incorrect answer and process
-0.5 = Correct answer but flawed process (or vice versa)
-1 = Correct answer and process
-
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
+        """Check if all requirements are covered."""
+        # Implementation depends on domain
+        raise NotImplementedError
         
-        try:
-            eval_response = self.llm.generate(prompt)
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5
-        except Exception as e:
-            self.logger.error(f"Error in math evaluation: {str(e)}")
-            return 0.5
-    
-    def _evaluate_code_correctness(
-        self,
-        response: str,
-        ground_truth: str
-    ) -> float:
-        """Specialized evaluation for code generation."""
-        prompt = f"""Evaluate if the following code solution is correct.
-Consider:
-1. Functional correctness
-2. Code quality and style
-3. Efficiency
-4. Error handling
-
-Reference Solution: {ground_truth}
-Submitted Solution: {response}
-
-Score from 0 to 1, where:
-0 = Incorrect and poorly written
-0.5 = Partially correct or suboptimal
-1 = Correct and well-written
-
-SCORE: [number]
-EXPLANATION: [your reasoning]"""
+    def _check_section_completeness(self, text: str) -> float:
+        """Check if all expected sections are present and complete."""
+        # Implementation depends on domain
+        raise NotImplementedError
         
-        try:
-            eval_response = self.llm.generate(prompt)
-            score_match = re.search(r"SCORE:\s*(0?\.\d+|1\.0?)", eval_response)
-            if score_match:
-                return float(score_match.group(1))
-            return 0.5
-        except Exception as e:
-            self.logger.error(f"Error in code evaluation: {str(e)}")
-            return 0.5
-    
-    def save_history(self, path: str) -> None:
-        """Save evaluation history to a file."""
-        with open(path, 'w') as f:
-            json.dump(self.evaluation_history, f, indent=2)
-    
-    @classmethod
-    def load_history(cls, path: str) -> List[Dict[str, Any]]:
-        """Load evaluation history from a file."""
-        with open(path, 'r') as f:
-            return json.load(f) 
+    def _check_contradictions(self, text: str) -> float:
+        """Check for logical contradictions in the text."""
+        # Implementation depends on domain
+        raise NotImplementedError
+        
+    def _check_style_consistency(self, text: str) -> float:
+        """Check for consistent writing style."""
+        # Implementation depends on domain
+        raise NotImplementedError
+        
+    def _check_terminology_consistency(self, text: str) -> float:
+        """Check for consistent use of terminology."""
+        # Implementation depends on domain
+        raise NotImplementedError 
