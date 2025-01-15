@@ -7,7 +7,7 @@
 - [Website](https://www.evolverl.com/)
 - [Whitepaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-whitepaper.pdf)
 - [Techpaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-techpaper.pdf)
-- [Telegram](https://t.me/evolveRL)
+- [Telegram](https://t.me/evolveRL_portal)
 - [Twitter/X](https://x.com/evolveRL_sol)
 
 ## 📚 Table of Contents
