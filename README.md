@@ -178,6 +178,7 @@ The evolution process shows real-time progress with nested progress bars:
 Generation 2/10: 100%|██████████| 6/6 [00:15<00:00, best_score=0875, avg_score=0834]
 Overall Progress:  15%|██        | 12/80 [00:30<02:45, generation=2/10, best_overall=0875]
 ```
+This may take a while as the 
 
 ## License
 

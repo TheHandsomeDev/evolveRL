@@ -35,12 +35,14 @@ class LLMBackend:
             if not self.config.openai_api_key:
                 raise ValueError("OpenAI API key is required for OpenAI models")
             openai.api_key = self.config.openai_api_key
-            self._client = openai.OpenAI()
+            # self._client = openai.OpenAI()
+            self._client = openai.AsyncOpenAI() # use asynchronous client
             
         elif self.config.model_type == "anthropic":
             if not self.config.anthropic_api_key:
                 raise ValueError("Anthropic API key is required for Anthropic models")
-            self._client = anthropic.Anthropic(api_key=self.config.anthropic_api_key)
+            # self._client = anthropic.Client(api_key=self.config.anthropic_api_key)
+            self._client = anthropic.AsyncClient(api_key=self.config.anthropic_api_key) # use asynchronous client   
     
     async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Generate text using the configured LLM with optional system prompt"""
@@ -54,7 +56,7 @@ class LLMBackend:
             # Add user message
             messages.append({"role": "user", "content": prompt})
             
-            response = self._client.chat.completions.create(
+            response = await self._client.chat.completions.create(
                 model=self.config.model_name,
                 messages=messages,
                 max_tokens=self.config.max_tokens,
@@ -63,7 +65,7 @@ class LLMBackend:
             return response.choices[0].message.content
             
         elif self.config.model_type == "anthropic":
-            response = self._client.messages.create(
+            response = await self._client.messages.create(
                 model=self.config.model_name,
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature,
