@@ -1,6 +1,6 @@
 {
-    "population_size": 2,
-    "generations": 1,
+    "population_size": 3,
+    "generations": 2,
     "mutation_rate": 0.1,
     "crossover_rate": 0.8,
     "min_score_threshold": 0.7,

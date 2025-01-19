@@ -111,6 +111,7 @@ print(response)
 
 ## CLI Usage
 
+`train_agent.py` is a single file CLI that runs the evolution process. Be sure to update the config file `default_config.json` first, as well as keep your OpenAI or Anthropic API key as environment variables or in the `.env`. 
 ```bash
 # Basic usage with OpenAI
 python train_agent.py --domain math --description "Solve math problems" -v
@@ -127,6 +128,7 @@ python train_agent.py --domain math --description "..." --output-dir ./my_agents
 # Increase verbosity (up to -vvvvv)
 python train_agent.py --domain math --description "..." -vvv
 ```
+Current domain examples are in natural language. You can add more details when building your own use cases. In addition, you may include any examples you believe are important for the agent to know. 
 
 ## Output Structure
 
@@ -138,6 +140,7 @@ agents/
 ├── {experiment_id}_gen1_full.json      # All variants and scores from generation 1
 └── {experiment_id}_best.json           # Best agent overall
 ```
+The individual `.json` (not the `*_full.json`) contains the `AgentConfig` for the best agent of the generation or overall. You may initiate an agent directly from its `AgentConfig` file by calling `agent.load_config(PATH_TO_CONFIG_FILE)`. Be sure to update the API key as it will not be stored in the `AgentConfig` file.
 
 ### Generation Output Format
 
@@ -178,7 +181,7 @@ The evolution process shows real-time progress with nested progress bars:
 Generation 2/10: 100%|██████████| 6/6 [00:15<00:00, best_score=0875, avg_score=0834]
 Overall Progress:  15%|██        | 12/80 [00:30<02:45, generation=2/10, best_overall=0875]
 ```
-This may take a while as the 
+This may take a while depending on the number of generations and population size per generation.
 
 ## License
 
