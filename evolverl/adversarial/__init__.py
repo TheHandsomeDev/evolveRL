@@ -1,17 +1,12 @@
-"""
-Adversarial testing module for EvolveRL.
-"""
-
-from dataclasses import dataclass
-from typing import Dict, Any, Optional
-
-@dataclass
-class TestCase:
-    """A test case for adversarial testing."""
-    input: str
-    expected_output: Optional[str] = None
-    metadata: Dict[str, Any] = None
-
+"""Adversarial testing module initialization."""
 from .adversarial import AdversarialTester
+from .customer_support_tester import CustomerSupportTester
+from .code_tester import CodeAdversarialTester
+from .test_case import AdversarialTestCase
 
-__all__ = ['TestCase', 'AdversarialTester'] 
+__all__ = [
+    "AdversarialTester",
+    "CustomerSupportTester",
+    "CodeAdversarialTester",
+    "AdversarialTestCase"
+] 
