@@ -122,4 +122,4 @@ DS_STORE
 .idea
 
 # judge results
-agents/*.json
+agents/
