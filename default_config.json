@@ -1,0 +1,17 @@
+{
+    "population_size": 3,
+    "generations": 2,
+    "mutation_rate": 0.1,
+    "crossover_rate": 0.8,
+    "min_score_threshold": 0.7,
+    "tournament_size": 2,
+    "max_interaction_attempts": 2,
+    "llm_config": {
+        "model_name": "gpt-4o-mini",
+        "model_type": "openai",
+        "max_tokens": 300,
+        "temperature": 0.7,
+        "openai_api_key": null,
+        "anthropic_api_key": null
+    }
+}
