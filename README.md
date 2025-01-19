@@ -1,4 +1,4 @@
-# EvolveRL: Evolutionary Reinforcement Learning for LLMs
+# evolveRL: Evolutionary Reinforcement Learning for LLMs
 
 > Empowering Truly Autonomous AI Agents Through Adversarial Evolutionary Reinforcement Learning
 
@@ -7,6 +7,7 @@
 - [Website](https://www.evolverl.com/)
 - [Whitepaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-whitepaper.pdf)
 - [Techpaper](https://github.com/TheHandsomeDev/evolveRL/blob/main/evolverl-techpaper.pdf)
+- [Docs](https://docs.evolverl.com/)
 - [Telegram](https://t.me/evolveRL_portal)
 - [Twitter/X](https://x.com/evolveRL_sol)
 
@@ -25,11 +26,11 @@
 
 ## Overview
 
-EvolveRL is a groundbreaking framework that enables AI agents to self-improve through evolutionary and adversarial mechanisms. Unlike traditional approaches that rely heavily on manual prompt engineering, EvolveRL allows agents to systematically generate, test, and refine their own prompts and configurations, bridging the gap between theoretical autonomy and actual self-reliance.
+evolveRL is a groundbreaking framework that enables AI agents to self-improve through evolutionary and adversarial mechanisms. Unlike traditional approaches that rely heavily on manual prompt engineering, evolveRL allows agents to systematically generate, test, and refine their own prompts and configurations, bridging the gap between theoretical autonomy and actual self-reliance.
 
 ### The Challenge
 
-In the emerging AI agent economy, many envision a future where agents run autonomously with minimal human oversight. However, if humans must constantly update AI prompts to handle new tasks or edge cases, the agents aren't truly sovereign. EvolveRL solves this by enabling continuous self-improvement through:
+In the emerging AI agent economy, many envision a future where agents run autonomously with minimal human oversight. However, if humans must constantly update AI prompts to handle new tasks or edge cases, the agents aren't truly sovereign. evolveRL solves this by enabling continuous self-improvement through:
 
 1. **Autonomous Evolution**: Agents detect gaps and update their own prompts
 2. **Adversarial Testing**: Robust validation against challenging scenarios
@@ -199,7 +200,7 @@ MIT License - see LICENSE file for details
 
 ```bibtex
 @software{evolverl2024,
-    title={EvolveRL: Evolutionary Reinforcement Learning for LLMs},
+    title={evolveRL: Evolutionary Reinforcement Learning for LLMs},
     author={TheHandsomeDev},
     year={2025},
     url={https://www.evolverl.com/}

@@ -33,7 +33,7 @@ def load_domain_data(filepath: Optional[str], domain: Optional[str], description
         raise ValueError("Must provide either filepath or both domain and description")
 
 async def main():
-    parser = argparse.ArgumentParser(description='Train an EvolveRL agent')
+    parser = argparse.ArgumentParser(description='Train an evolveRL agent')
     
     # Config arguments
     config_group = parser.add_mutually_exclusive_group()
