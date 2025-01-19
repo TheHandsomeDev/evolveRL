@@ -1,10 +1,11 @@
-"""
-Evolution package for managing the evolutionary optimization process.
-
-This package provides components for evolving and optimizing prompts
-and model configurations through genetic algorithms.
-"""
-
+"""Evolution module initialization."""
 from .evolution import Evolution, EvolutionConfig
+from .code_evolution import CodeEvolution
+from .customer_support_evolution import CustomerSupportEvolution
 
-__all__ = ['Evolution', 'EvolutionConfig'] 
+__all__ = [
+    "Evolution",
+    "EvolutionConfig",
+    "CodeEvolution",
+    "CustomerSupportEvolution"
+] 

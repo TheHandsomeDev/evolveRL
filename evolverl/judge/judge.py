@@ -1,126 +1,160 @@
-"""
-Judge module for evaluating LLM responses.
-"""
-
+"""Judge module for evaluating agent performance."""
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
 import logging
 
-from ..adversarial import TestCase
+from ..llm import LLMBackend, OpenAILLMConfig, AnthropicLLMConfig
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 @dataclass
 class JudgingCriteria:
-    """Criteria for judging responses."""
-    correctness: float = 1.0
-    clarity: float = 0.5
-    efficiency: float = 0.7
-    robustness: float = 0.6
-    completeness: float = 0.5
-    consistency: float = 0.4
+    """Criteria for judging agent performance."""
+    correctness: float = 1.0  # Weight for solution correctness
+    clarity: float = 0.5      # Weight for response clarity
+    efficiency: float = 0.7   # Weight for solution efficiency
+    robustness: float = 0.6   # Weight for error handling
+    completeness: float = 0.5 # Weight for addressing all requirements
+    consistency: float = 0.4  # Weight for consistent style/approach
 
 class Judge:
-    """Evaluates LLM responses using multiple criteria."""
+    """Evaluates agent responses using LLM-based judgment."""
     
-    def __init__(self, criteria: JudgingCriteria, code_evaluator: Optional[Any] = None):
+    def __init__(
+        self,
+        criteria: JudgingCriteria,
+        provider: str = "openai",
+        model: Optional[str] = None
+    ):
         self.criteria = criteria
-        self.code_evaluator = code_evaluator
-        self._metrics = {}
+        
+        # Initialize LLM backend
+        if provider == "openai":
+            config = OpenAILLMConfig(
+                model=model or "gpt-4o-mini",
+                temperature=0.3  # Lower temperature for more consistent evaluation
+            )
+        else:
+            config = AnthropicLLMConfig(
+                model=model or "claude-3-5-sonnet-20241022",
+                temperature=0.3
+            )
+        
+        self.llm = LLMBackend(config=config)
     
-    def evaluate(self, test_case: TestCase, response: str) -> float:
-        """Evaluate a response using the judging criteria."""
-        logger.debug(f"Evaluating response of length {len(response)}")
-        self._metrics = {}
-        
-        # Evaluate each criterion
-        self._metrics["correctness"] = self._evaluate_correctness(test_case, response)
-        self._metrics["clarity"] = self._evaluate_clarity(response)
-        self._metrics["efficiency"] = self._evaluate_efficiency(test_case, response)
-        self._metrics["robustness"] = self._evaluate_robustness(test_case, response)
-        self._metrics["completeness"] = self._evaluate_completeness(test_case, response)
-        self._metrics["consistency"] = self._evaluate_consistency(test_case, response)
-        
-        # Calculate weighted score
-        total_score = sum(
-            score * getattr(self.criteria, criterion)
-            for criterion, score in self._metrics.items()
+    def evaluate(
+        self,
+        response: str,
+        test_case: Any,
+        domain: Optional[str] = None
+    ) -> float:
+        """Evaluate an agent's response to a test case."""
+        # Create evaluation prompt
+        prompt = self._create_evaluation_prompt(
+            response=response,
+            test_case=test_case,
+            domain=domain
         )
         
-        # Normalize by sum of weights
-        total_weight = sum(
-            getattr(self.criteria, criterion)
-            for criterion in self._metrics.keys()
-        )
+        # Get evaluation from LLM
+        try:
+            eval_response = self.llm.generate(prompt)
+            scores = self._parse_evaluation(eval_response)
+            
+            # Calculate weighted score
+            total_score = (
+                scores["correctness"] * self.criteria.correctness +
+                scores["clarity"] * self.criteria.clarity +
+                scores["efficiency"] * self.criteria.efficiency +
+                scores["robustness"] * self.criteria.robustness +
+                scores["completeness"] * self.criteria.completeness +
+                scores["consistency"] * self.criteria.consistency
+            )
+            
+            # Normalize by total weights
+            total_weight = sum(vars(self.criteria).values())
+            normalized_score = total_score / total_weight
+            
+            return normalized_score
+            
+        except Exception as e:
+            logger.error(f"Evaluation failed: {str(e)}")
+            return 0.0
+    
+    def _create_evaluation_prompt(
+        self,
+        response: str,
+        test_case: Any,
+        domain: Optional[str] = None
+    ) -> str:
+        """Create prompt for evaluation."""
+        base_prompt = f"""Evaluate this AI agent response based on the following criteria:
+
+Test Case:
+{test_case.input if hasattr(test_case, 'input') else str(test_case)}
+
+Agent Response:
+{response}
+
+For each criterion, provide a score from 0.0 to 1.0 and brief justification:
+
+1. Correctness (solution accuracy)
+2. Clarity (response clarity)
+3. Efficiency (solution efficiency)
+4. Robustness (error handling)
+5. Completeness (requirement coverage)
+6. Consistency (style/approach)
+
+Format your response as:
+criterion: score # justification"""
+
+        if domain:
+            base_prompt += f"\n\nDomain-specific considerations for {domain}:"
+            if domain == "code":
+                base_prompt += """
+- Code quality and best practices
+- Documentation completeness
+- Algorithm efficiency
+- Error handling coverage"""
+            elif domain == "customer_support":
+                base_prompt += """
+- Empathy and tone
+- Solution clarity
+- Follow-up handling
+- Policy compliance"""
         
-        final_score = total_score / total_weight if total_weight > 0 else 0.0
-        logger.debug(f"Final score: {final_score:.3f}")
-        return final_score
+        return base_prompt
     
-    def get_metrics(self) -> Dict[str, float]:
-        """Get the last computed metrics."""
-        return self._metrics.copy()
-    
-    def _evaluate_correctness(self, test_case: TestCase, response: str) -> float:
-        """Evaluate functional correctness."""
-        if self.code_evaluator and test_case.metadata.get("code"):
-            return self.code_evaluator.evaluate_correctness(test_case, response)
+    def _parse_evaluation(self, eval_response: str) -> Dict[str, float]:
+        """Parse evaluation response into scores."""
+        scores = {
+            "correctness": 0.0,
+            "clarity": 0.0,
+            "efficiency": 0.0,
+            "robustness": 0.0,
+            "completeness": 0.0,
+            "consistency": 0.0
+        }
+        
+        try:
+            # Parse each line for scores
+            for line in eval_response.split('\n'):
+                if ':' not in line:
+                    continue
+                    
+                criterion, rest = line.split(':', 1)
+                criterion = criterion.strip().lower()
+                
+                # Extract score (assuming format "score # justification")
+                score_part = rest.split('#')[0].strip()
+                try:
+                    score = float(score_part)
+                    if criterion in scores:
+                        scores[criterion] = max(0.0, min(1.0, score))
+                except ValueError:
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Failed to parse evaluation: {str(e)},", "eval_response:", eval_response)
             
-        # Basic correctness check
-        if test_case.expected_output:
-            return 1.0 if response.strip() == test_case.expected_output.strip() else 0.0
-        return 0.5  # No expected output to compare against
-    
-    def _evaluate_clarity(self, response: str) -> float:
-        """Evaluate clarity and readability."""
-        if self.code_evaluator:
-            return self.code_evaluator.evaluate_style(response)
-            
-        # Basic clarity metrics
-        has_structure = "\n" in response
-        has_explanation = any(word in response.lower() for word in ["because", "since", "as"])
-        return (has_structure + has_explanation) / 2
-    
-    def _evaluate_efficiency(self, test_case: TestCase, response: str) -> float:
-        """Evaluate solution efficiency."""
-        if self.code_evaluator and test_case.metadata.get("code"):
-            return self.code_evaluator.evaluate_efficiency(test_case, response)
-            
-        # Basic efficiency check
-        return 0.5  # Default score when efficiency can't be measured
-    
-    def _evaluate_robustness(self, test_case: TestCase, response: str) -> float:
-        """Evaluate solution robustness."""
-        # Check for error handling
-        has_validation = "if" in response.lower()
-        has_error_handling = any(word in response.lower() for word in ["error", "exception", "raise"])
-        return (has_validation + has_error_handling) / 2
-    
-    def _evaluate_completeness(self, test_case: TestCase, response: str) -> float:
-        """Evaluate solution completeness."""
-        # Check if all parts of the input are addressed
-        input_words = set(test_case.input.lower().split())
-        response_words = set(response.lower().split())
-        coverage = len(input_words.intersection(response_words)) / len(input_words)
-        return coverage
-    
-    def _evaluate_consistency(self, test_case: TestCase, response: str) -> float:
-        """Evaluate internal consistency."""
-        # Basic consistency checks
-        lines = response.strip().split("\n")
-        if not lines:
-            return 0.0
-            
-        # Check indentation consistency
-        indents = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
-        if not indents:
-            return 0.0
-            
-        # Check if all indents are multiples of the same base
-        base_indent = min(indent for indent in indents if indent > 0) if any(indent > 0 for indent in indents) else 0
-        if base_indent == 0:
-            return 0.5
-            
-        consistent_indents = all(indent % base_indent == 0 for indent in indents)
-        return 1.0 if consistent_indents else 0.0 
+        return scores 

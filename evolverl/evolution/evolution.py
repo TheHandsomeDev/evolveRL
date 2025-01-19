@@ -1,211 +1,262 @@
-"""
-Evolution module for EvolveRL.
-"""
-
+"""Base evolution implementation."""
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Any, Optional
-import random
+from typing import Optional, List, Callable, Any, Tuple, Dict
 import logging
+import random
 
-from ..llm import LLMBackend, LLMConfig
+from ..llm import LLMBackend
 from ..judge import Judge
-from ..adversarial import AdversarialTester, TestCase
+from ..adversarial import AdversarialTester
+from ..agent import Agent
+from ..generator.use_case import UseCaseGenerator, UseCase
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 @dataclass
 class EvolutionConfig:
-    """Configuration for evolutionary optimization."""
+    """Configuration for evolution."""
     population_size: int = 10
-    generations: int = 50
+    generations: int = 5
     mutation_rate: float = 0.2
     crossover_rate: float = 0.7
-    elite_size: int = 1
-    min_fitness_threshold: float = 0.8
-    tournament_size: int = 2
-
-@dataclass
-class Individual:
-    """An individual in the population."""
-    prompt: str
-    config: LLMConfig
-    fitness: float = 0.0
-    metrics: Dict[str, float] = None
+    tournament_size: int = 3
+    use_case_description: Optional[str] = None
 
 class Evolution:
-    """Manages evolutionary optimization process."""
+    """Base class for evolutionary optimization."""
     
     def __init__(
         self,
         config: EvolutionConfig,
-        llm_backend: LLMBackend,
         judge: Judge,
         adversarial: AdversarialTester,
-        prompt_writer: Any
+        llm_backend: Optional[LLMBackend] = None,
+        save_callback: Optional[Callable[[Agent, int], None]] = None,
+        provider: str = "openai"
     ):
+        """Initialize evolution."""
+        if config.population_size < 2:
+            raise ValueError("Population size must be at least 2")
+        if config.generations < 1:
+            raise ValueError("Number of generations must be at least 1")
+        if not (0 <= config.mutation_rate <= 1):
+            raise ValueError("Mutation rate must be between 0 and 1")
+        if not (0 <= config.crossover_rate <= 1):
+            raise ValueError("Crossover rate must be between 0 and 1")
+        if config.tournament_size < 2:
+            raise ValueError("Tournament size must be at least 2")
+        
         self.config = config
-        self.llm = llm_backend
         self.judge = judge
         self.adversarial = adversarial
-        self.prompt_writer = prompt_writer
-        self.population: List[Individual] = []
-        self.generation = 0
-        self.best_individual: Optional[Individual] = None
+        self.llm = llm_backend or LLMBackend(provider=provider)
+        self.save_callback = save_callback
+        self.provider = provider
+        self.use_case: Optional[UseCase] = None
         
-    def initialize_population(self):
-        """Initialize the population with random individuals."""
-        logger.info("Initializing population...")
-        self.population = []
-        base_config = self.llm.get_default_config()
-        
-        for i in range(self.config.population_size):
-            prompt = self.prompt_writer.generate_initial_prompt()
-            config = self.llm.mutate_config(base_config)
-            individual = Individual(prompt=prompt, config=config)
-            self.population.append(individual)
-            logger.debug(f"Created individual {i+1}/{self.config.population_size}")
+        if config.use_case_description:
+            self._generate_use_case()
     
-    def evaluate_individual(self, individual: Individual) -> Tuple[float, Dict[str, float]]:
-        """Evaluate an individual using test cases."""
-        logger.debug(f"Evaluating individual with config: temp={individual.config.temperature:.2f}")
-        test_cases = self.adversarial.generate_test_cases(num_cases=3)
-        total_score = 0.0
-        metrics = {}
+    def _generate_use_case(self) -> None:
+        """Generate use case configuration if needed."""
+        logger.info("Generating use case configuration...")
+        generator = UseCaseGenerator(provider=self.llm.provider)
+        self.use_case = generator.generate(self.config.use_case_description)
         
-        for i, test in enumerate(test_cases):
-            # Generate response using the individual's prompt and config
-            full_prompt = f"{individual.prompt}\n\n{test.input}"
-            response = self.llm.generate(prompt=full_prompt, config=individual.config)
-            
-            # Evaluate response
-            score = self.judge.evaluate(test, response)
-            total_score += score
-            
-            # Update metrics
-            for key, value in self.judge.get_metrics().items():
-                metrics[key] = metrics.get(key, 0.0) + value
-            
-            logger.debug(f"Test case {i+1}/3: score={score:.3f}")
-        
-        # Average scores and metrics
-        avg_score = total_score / len(test_cases)
-        for key in metrics:
-            metrics[key] /= len(test_cases)
-            
-        logger.debug(f"Final score: {avg_score:.3f}")
-        return avg_score, metrics
+        # Update components with generated prompts
+        if self.use_case:
+            logger.info(f"Generated use case for domain: {self.use_case.domain}")
+            self.base_prompt = self.use_case.base_prompt
+            self.judge.prompt_template = self.use_case.judge_prompt
+            # Note: Adversary prompt is handled by specific tester classes
     
-    def select_parents(self) -> List[Individual]:
-        """Select parents for next generation using tournament selection."""
-        tournament_size = min(self.config.tournament_size, len(self.population))
-        parents = []
-        
-        while len(parents) < self.config.population_size:
-            # Tournament selection
-            tournament = random.sample(self.population, tournament_size)
-            winner = max(tournament, key=lambda x: x.fitness)
-            parents.append(winner)
-            
-        return parents
-    
-    def crossover(self, parent1: Individual, parent2: Individual) -> Individual:
-        """Perform crossover between two parents."""
-        if random.random() < self.config.crossover_rate:
-            # Crossover prompts
-            new_prompt = self.prompt_writer.crossover_prompts(
-                parent1.prompt,
-                parent2.prompt
-            )
-            
-            # Crossover configs
-            new_config = self.llm.crossover_configs(
-                parent1.config,
-                parent2.config
-            )
+    def _create_base_agent(self) -> Agent:
+        """Create a base agent."""
+        if self.use_case:
+            prompt_template = self.use_case.base_prompt
         else:
-            # No crossover, just copy one parent
-            new_prompt = parent1.prompt
-            new_config = parent1.config
+            prompt_template = self._generate_base_prompt()
             
-        return Individual(prompt=new_prompt, config=new_config)
+        if self.provider == "openai":
+            return Agent.from_openai(prompt_template=prompt_template)
+        else:
+            return Agent.from_anthropic(prompt_template=prompt_template)
     
-    def mutate(self, individual: Individual) -> Individual:
-        """Mutate an individual."""
-        if random.random() < self.config.mutation_rate:
-            # Mutate prompt
-            new_prompt = self.prompt_writer.mutate_prompt(individual.prompt)
-            
-            # Mutate config
-            new_config = self.llm.mutate_config(individual.config)
-            
-            return Individual(prompt=new_prompt, config=new_config)
-            
-        return individual
+    def _evaluate_agent(self, agent: Agent) -> float:
+        """Evaluate an agent's fitness."""
+        # Use generated test cases if available
+        if self.use_case:
+            test_cases = [
+                (ex["task"], ex.get("context", ""))
+                for ex in self.use_case.train_data
+            ]
+        else:
+            test_cases = self.adversarial.generate_test_cases(agent)
+        
+        total_score = 0.0
+        for task, context in test_cases:
+            response = agent.run(task, context)
+            score = self.judge.evaluate(response, task, context)
+            total_score += score
+        
+        return total_score / len(test_cases)
     
-    def evolve_generation(self):
-        """Evolve one generation."""
-        logger.info(f"Generation {self.generation + 1}/{self.config.generations}")
-        
-        # Evaluate current population
-        for i, ind in enumerate(self.population):
-            if ind.fitness == 0.0:  # Only evaluate if not already evaluated
-                logger.info(f"Evaluating individual {i+1}/{len(self.population)}")
-                ind.fitness, ind.metrics = self.evaluate_individual(ind)
-        
-        # Update best individual
-        current_best = max(self.population, key=lambda x: x.fitness)
-        if not self.best_individual or current_best.fitness > self.best_individual.fitness:
-            self.best_individual = current_best
-            logger.info(f"New best fitness: {self.best_individual.fitness:.3f}")
-            
-        # Select parents
-        parents = self.select_parents()
-        
-        # Create new population
-        new_population = []
-        
-        # Elitism: keep best individuals
-        sorted_pop = sorted(self.population, key=lambda x: x.fitness, reverse=True)
-        new_population.extend(sorted_pop[:self.config.elite_size])
-        logger.debug(f"Added {self.config.elite_size} elite individuals")
-        
-        # Create rest of population
-        while len(new_population) < self.config.population_size:
-            # Select parents
-            parent1, parent2 = random.sample(parents, 2)
-            
-            # Create child through crossover
-            child = self.crossover(parent1, parent2)
-            
-            # Mutate child
-            child = self.mutate(child)
-            
-            new_population.append(child)
-            
-        self.population = new_population
-        self.generation += 1
-        
-        # Update adversarial difficulty based on population performance
-        avg_fitness = sum(ind.fitness for ind in self.population) / len(self.population)
-        self.adversarial.update_difficulty(avg_fitness)
-        logger.info(f"Average fitness: {avg_fitness:.3f}")
-    
-    def run(self) -> Individual:
+    def run(self) -> Agent:
         """Run the evolutionary process."""
-        logger.info("Starting evolution...")
+        logger.info("Starting evolution process...")
+        self.population = []
+        self.generation = 0
+        self.best_fitness = 0.0
         
         # Initialize population
-        self.initialize_population()
+        base_agent = self._create_base_agent()
+        for _ in range(self.config.population_size):
+            agent = self._mutate_agent(base_agent)
+            self.population.append(agent)
         
-        # Main evolution loop
+        # Run generations
         for gen in range(self.config.generations):
-            self.evolve_generation()
+            self.generation = gen
+            logger.info(f"\nGeneration {gen + 1}/{self.config.generations}")
             
-            # Check if we've reached the fitness threshold
-            if self.best_individual.fitness >= self.config.min_fitness_threshold:
-                logger.info("Reached minimum fitness threshold")
-                break
-                
-        logger.info("Evolution completed")
-        return self.best_individual 
+            # Evaluate population
+            for agent in self.population:
+                agent.fitness = self._evaluate_agent(agent)
+            
+            # Get best agent
+            best_agent = max(self.population, key=lambda x: x.fitness)
+            self.best_fitness = best_agent.fitness
+            
+            # Save checkpoint if callback provided
+            if self.save_callback:
+                self.save_callback(best_agent, gen)
+            
+            # Create next generation
+            if gen < self.config.generations - 1:
+                self._create_next_generation()
+        
+        return max(self.population, key=lambda x: x.fitness)
+    
+    def _mutate_agent(self, agent: Agent) -> Agent:
+        """Create a mutated copy of an agent."""
+        mutation_prompt = f"""Given this prompt template:
+{agent.prompt_template}
+
+Create a variation that:
+1. Maintains the core functionality
+2. Emphasizes different aspects
+3. Keeps the basic structure
+4. Makes small but meaningful changes
+
+Return only the new prompt template."""
+        
+        new_prompt = self.llm.generate(mutation_prompt)
+        return Agent(
+            model=agent.model,
+            provider=agent.provider,
+            prompt_template=new_prompt
+        )
+    
+    def _crossover_agents(self, agent1: Agent, agent2: Agent) -> Agent:
+        """Create new agent by combining prompts."""
+        crossover_prompt = f"""Given these two prompt templates:
+
+Template 1:
+{agent1.prompt_template}
+
+Template 2:
+{agent2.prompt_template}
+
+Create a new template that:
+1. Combines the strengths of both
+2. Maintains core functionality
+3. Has a clear structure
+4. Is coherent and well-formed
+
+Return only the new prompt template."""
+        
+        new_prompt = self.llm.generate(crossover_prompt)
+        return Agent(
+            model=agent1.model,
+            provider=agent1.provider,
+            prompt_template=new_prompt
+        )
+    
+    def _create_next_generation(self) -> None:
+        """Create the next generation through selection and variation."""
+        # Sort population by fitness
+        self.population.sort(key=lambda x: x.fitness, reverse=True)
+        
+        # Keep best agents
+        elite_size = max(1, self.config.population_size // 5)
+        new_population = self.population[:elite_size]
+        
+        # Fill rest of population
+        while len(new_population) < self.config.population_size:
+            if random.random() < self.config.crossover_rate:
+                # Crossover
+                parent1 = self._tournament_select()
+                parent2 = self._tournament_select()
+                child = self._crossover_agents(parent1, parent2)
+            else:
+                # Mutation
+                parent = self._tournament_select()
+                child = self._mutate_agent(parent)
+            
+            new_population.append(child)
+        
+        self.population = new_population
+    
+    def _tournament_select(self) -> Agent:
+        """Select an agent using tournament selection."""
+        tournament = random.sample(
+            self.population,
+            min(self.config.tournament_size, len(self.population))
+        )
+        return max(tournament, key=lambda x: x.fitness)
+    
+    def _evaluate_population(self, test_cases: List[Tuple[str, Dict[str, Any]]]) -> None:
+        """Evaluate all agents in the population."""
+        for agent in self.population:
+            total_score = 0.0
+            for task, context in test_cases:
+                response = agent.run(task, context)
+                score = self.judge.evaluate(response, task, context)
+                total_score += score
+            agent.fitness = total_score / len(test_cases)
+    
+    def _generate_base_prompt(self) -> str:
+        """Generate base prompt template for agents.
+        
+        Returns:
+            str: Generated prompt template with {task} and {context} placeholders
+        """
+        prompt = """Given this task description, generate a base prompt template for an AI agent.
+The prompt should:
+1. Set clear expectations for the agent's role and behavior
+2. Include placeholders for {task} and {context}
+3. Be adaptable to different inputs
+4. Encourage high-quality, thoughtful responses
+
+Task description: {description}
+
+Return only the prompt template, nothing else."""
+
+        try:
+            # Generate base prompt using LLM
+            description = self.config.use_case_description or "A general-purpose AI assistant"
+            generated = self.llm.generate(prompt.format(description=description))
+            
+            # Validate prompt has required placeholders
+            if "{task}" not in generated or "{context}" not in generated:
+                logger.warning("Generated prompt missing placeholders, using default")
+                return "Task: {task}\nContext: {context}\n\nProvide a detailed, high-quality response."
+            
+            return generated.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating base prompt: {str(e)}")
+            # Fallback to default prompt
+            return "Task: {task}\nContext: {context}\n\nProvide a detailed, high-quality response."
+    
+    # ... rest of Evolution class implementation ... 
